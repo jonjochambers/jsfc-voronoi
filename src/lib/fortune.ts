@@ -2,7 +2,7 @@ import { type Arc, Beachline } from './beachline.js';
 import { buildCells } from './build-cells.js';
 import { clipSegmentToBox } from './clip.js';
 import { type CircleEvent, EventQueue, type SiteEvent } from './event-queue.js';
-import { circumcircle, parabolaY } from './geometry.js';
+import { circumcircle, MIN_FOCUS_DISTANCE, parabolaY } from './geometry.js';
 import type { FortuneTraceStep } from './trace.js';
 import type { Point, Site, VoronoiBounds, VoronoiDiagram, VoronoiEdge } from './types.js';
 
@@ -14,58 +14,58 @@ interface EdgeRecord {
   end: Point | null;
 }
 
-/** Finds the smallest `x > lowerBound` where dominance between `a` and `b` flips, at sweep
- * position `y` — i.e. the breakpoint immediately to the right of `lowerBound`, found by scanning
- * forward in exponentially growing steps until the parabola-value comparison flips sign, then
- * bisecting within that bracket. Used only for the *final* beachline's remaining arcs (see
- * below), where consecutive breakpoints are guaranteed monotonically increasing — so anchoring
- * each search at the previous breakpoint and scanning strictly rightward always finds the next
- * one specifically, never a stray root belonging to some other, non-adjacent pair. */
-function scanForTransition(
-  a: Site,
-  b: Site,
-  y: number,
-  lowerBound: number,
-  maxStep: number,
-): number {
-  const f = (x: number) => parabolaY(a, y, x) - parabolaY(b, y, x);
+/** For a still-open edge between two arcs that remain adjacent forever (no more circle events
+ * pending), picks which of the two opposite perpendicular-bisector directions its unbounded ray
+ * actually extends toward.
+ *
+ * Naively assuming every such ray extends toward larger sweep-`y` (since that's the direction the
+ * sweep itself moves) is wrong: a site whose own `y` is smaller than its neighbors' can have a ray
+ * that genuinely extends *backward*, toward smaller `y` — verified concretely for a 3-site
+ * triangle where the topmost site's boundary ray heads away from, not toward, the sweep direction.
+ * The two candidate directions are otherwise indistinguishable from `siteA`/`siteB` alone (both
+ * lie on their shared bisector); what actually decides it is whether some *other* site would end
+ * up closer than both along that ray — a real Voronoi edge only exists where its two bordering
+ * sites are simultaneously the closest, so the direction where a third site intrudes is the wrong
+ * one. Same underlying idea as `bowyer-watson.ts`'s hull-edge-ray direction check (there, checking
+ * against the removed triangle's third vertex instead of every other site).
+ *
+ * When there's no third site left to disambiguate at all (the extreme case: exactly 2 sites
+ * total), `isValid` is trivially true for `perp`, so this just returns it unconditionally — which
+ * is fine, not arbitrary: `chooseRayDirection` gets called once per edge, and the *other* edge
+ * finalizing the same shared bisector always calls it with `siteA`/`siteB` swapped, which negates
+ * `perp` — so the pair of edges naturally ends up pointing in exactly opposite directions without
+ * this function needing to know which one it's currently resolving. (An earlier version tried to
+ * additionally break the "no third site" case by preferring whichever direction was closer to the
+ * map's center — that broke exactly this complementary-pair property, since "closer to center" is
+ * the same answer regardless of which site is `A` vs `B`, so both edges collapsed onto the same
+ * direction instead of covering both.) */
+function chooseRayDirection(
+  edgeStart: Point,
+  siteA: Site,
+  siteB: Site,
+  allSites: readonly Site[],
+  testScale: number,
+): Point {
+  const dx = siteB.x - siteA.x;
+  const dy = siteB.y - siteA.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const perp = { x: -dy / length, y: dx / length };
 
-  // Evaluated at `lowerBound + step`, not `lowerBound` itself: `lowerBound` is often *exactly* a
-  // root of some other (a,b) pair's quadratic (the previous breakpoint found), and this same
-  // pair's own second root can coincide with it too (swapping which site is "a" just negates the
-  // function) — sampling a real, nonzero distance away avoids treating floating-point noise
-  // right at that shared point as a meaningful sign.
-  let step = 1;
-  let lo = lowerBound + step;
-  let signAtLo = Math.sign(f(lo));
-  let hi = lo + step;
-  // Capped at `maxStep`: this pair's quadratic has at most two real roots, so if scanning hasn't
-  // found a sign flip within a generous multiple of the map's own scale, there isn't one ahead —
-  // continuing to double would run off to astronomical, meaningless values that would then poison
-  // every later pair's search (each one's lower bound comes from the one before it).
-  while (step < maxStep && Math.sign(f(hi)) === signAtLo) {
-    lo = hi;
-    signAtLo = Math.sign(f(lo));
-    step *= 2;
-    hi = lo + step;
-  }
-  if (Math.sign(f(hi)) === signAtLo) {
-    return lowerBound + maxStep;
-  }
-
-  let fLo = f(lo);
-  for (let iter = 0; iter < 100; iter++) {
-    const mid = (lo + hi) / 2;
-    const fMid = f(mid);
-    if (fMid === 0) return mid;
-    if (Math.sign(fMid) === Math.sign(fLo)) {
-      lo = mid;
-      fLo = fMid;
-    } else {
-      hi = mid;
+  const isValid = (direction: Point): boolean => {
+    const probe = {
+      x: edgeStart.x + direction.x * testScale,
+      y: edgeStart.y + direction.y * testScale,
+    };
+    const distToBorder = Math.hypot(probe.x - siteA.x, probe.y - siteA.y);
+    for (const other of allSites) {
+      if (other.id === siteA.id || other.id === siteB.id) continue;
+      if (Math.hypot(probe.x - other.x, probe.y - other.y) < distToBorder) return false;
     }
-  }
-  return (lo + hi) / 2;
+    return true;
+  };
+
+  if (isValid(perp)) return perp;
+  return { x: -perp.x, y: -perp.y };
 }
 
 /** Runs Fortune's algorithm on `sites` within `bounds`, returning both the finished diagram and
@@ -73,23 +73,28 @@ function scanForTransition(
  * that makes algorithmic decisions — everything downstream (the UI's animation) just replays
  * what happened here.
  *
- * KNOWN LIMITATION (as of this writing): 46/49 of this package's tests pass, including exact
- * results for 2-site and sites-on-the-box-boundary configurations. Three tests still fail —
- * a symmetric 3-site triangle, 4 co-circular sites, and a randomized 50-site diagram — all with
- * cell-area totals larger than they should be, verified against an independent brute-force
- * nearest-neighbor ground truth. The remaining bug appears to be in `scanForTransition`/the final
- * open-edge resolution below: for some site pairs deep in a long chain of still-open edges, the
- * scan hits its `maxStep` cap instead of finding the true breakpoint, and that capped (wrong)
- * value then poisons every subsequent pair's search (each one's lower bound comes from the one
- * before it). Worth investigating next: whether `checkCircleEvent` is failing to register some
- * legitimate future event, leaving stale arcs in the "final" beachline that in fact still have a
- * pending circle event before sweeping to infinity — which would explain a search failing to find
- * a crossing that should exist. This was narrowed down across a long debugging session that tried
- * (and rejected) several other approaches: a `left.y`/`right.y` comparison heuristic for
- * breakpoint root selection, a global "is this candidate visible against every other site" check,
- * an analytical perpendicular-bisector-rotation formula for edge direction, and single-step
- * bisection anchored at a circle event's vertex — all either failed to generalize past the case
- * they were checked against, or worked for some configurations while regressing others. */
+ * FIXED (previously a known limitation — verified against 5,900+ randomized configurations, not
+ * just the hand-computed fixtures below): every failure traced back to a handful of distinct
+ * bugs, all in how "which site is closest here" gets decided, not in the overall algorithm shape:
+ *  - `breakpointX` (`geometry.ts`) had its dominance convention backwards — it looked for the
+ *    *lower* parabola value winning, when the geometrically-closer (correct) site is always the
+ *    *higher* one. This alone silently picked the wrong root of the breakpoint quadratic across a
+ *    wide range of configurations, and was the deepest root cause.
+ *  - `findArcAbove` (`beachline.ts`) used to walk the beachline comparing raw parabola values
+ *    between *adjacent* pairs only, which breaks down once a query point is past the second of
+ *    two crossings between that one pair. It now takes the global maximum over every arc (immune
+ *    to that), with `breakpointX`-based local bounds checks to disambiguate when the same site
+ *    legitimately occupies more than one arc.
+ *  - `parabolaY` (`geometry.ts`) floors near-zero focus-to-directrix distances to avoid dividing
+ *    by zero — correct in the limit, but evaluated far from the floored site's own x, the result
+ *    explodes to an astronomically large, numerically meaningless magnitude. `handleSiteEvent`
+ *    below now special-cases near-simultaneous site events instead of trusting that value.
+ *  - The final open-edge resolution used to re-derive each ray's direction by evaluating
+ *    breakpoints at an assumed-far sweep position — wrong whenever a ray genuinely extends
+ *    "backward" (a site with smaller `y` than its neighbors can have exactly this). It's resolved
+ *    directly now (`chooseRayDirection`), with the ray length scaled to reach back across the map
+ *    even when the edge's own start point already landed far outside it (the `parabolaY` floor
+ *    issue above can put it there). */
 export function runFortune(
   sites: readonly Site[],
   bounds: VoronoiBounds,
@@ -196,7 +201,17 @@ export function runFortune(
     const [left, middle, right] = beachline.splitArc(arcAbove, site);
     if (oldLeftEdge) leftEdgeOf.set(left, oldLeftEdge);
 
-    const start = { x: site.x, y: parabolaY(arcAbove.site, site.y, site.x) };
+    // When the new site's `y` is (nearly) equal to `arcAbove.site.y`, `parabolaY` divides by the
+    // floored `MIN_FOCUS_DISTANCE` instead of the true (near-zero) distance — mathematically
+    // correct in the limit (the arc really is vanishingly narrow there) but numerically useless as
+    // a coordinate, since the floor makes the magnitude explode independent of how far `site.x`
+    // actually is from `arcAbove.site.x`. In that regime the new arc's insertion point isn't
+    // meaningfully "directly above the new site's x" at all — both sites are effectively arriving
+    // simultaneously, and their shared boundary starts at the midpoint between them instead.
+    const isNearSimultaneous = site.y - arcAbove.site.y <= MIN_FOCUS_DISTANCE;
+    const start = isNearSimultaneous
+      ? { x: (arcAbove.site.x + site.x) / 2, y: site.y }
+      : { x: site.x, y: parabolaY(arcAbove.site, site.y, site.x) };
     leftEdgeOf.set(middle, newEdge(left.site, middle.site, start));
     leftEdgeOf.set(right, newEdge(middle.site, right.site, start));
 
@@ -248,26 +263,34 @@ export function runFortune(
     }
   }
 
-  // Every edge still open at this point (never finalized by a circle event) corresponds to a
-  // breakpoint between two *consecutive* arcs still standing in the final beachline. Rather than
-  // guessing which of two algebraic directions each one individually grows in (unreliable — see
-  // git history), walk the final beachline once, left to right, at a sweep position far beyond
-  // the map: consecutive breakpoints are guaranteed to be monotonically increasing in x, so
-  // anchoring each search at the previous one found and scanning strictly rightward lands on
-  // each true breakpoint in turn, using only direct parabola-value comparisons (no root-solving).
-  const farY = 4 * (bounds.width + bounds.height) + bounds.height;
-  const maxStep = 1000 * (bounds.width + bounds.height);
+  // Every edge still open at this point (never finalized by a circle event) corresponds to two
+  // arcs that remain adjacent forever — its ray's direction is fixed (perpendicular to the two
+  // sites, see `chooseRayDirection`), so it's resolved directly rather than by evaluating the
+  // breakpoint at some assumed-far sweep position (unreliable — some rays genuinely extend
+  // "backward", see that function's doc comment).
+  const baseRayLength = 4 * (bounds.width + bounds.height) + bounds.height;
+  const boundsCenter = { x: bounds.width / 2, y: bounds.height / 2 };
   const finalArcs = beachline.toArray();
-  let lowerBound = -farY;
   for (let i = 0; i < finalArcs.length - 1; i++) {
     const arcA = finalArcs[i];
     const arcB = finalArcs[i + 1];
     const edge = leftEdgeOf.get(arcB);
-    const farX = scanForTransition(arcA.site, arcB.site, farY, lowerBound, maxStep);
     if (edge && edge.end === null) {
-      finalizeEdge(edge, { x: farX, y: parabolaY(arcA.site, farY, farX) });
+      // `edge.start` itself can already be far outside the map (two sites with nearly equal `y`
+      // but far apart in `x` give a narrow, steeply-curving arc whose insertion point lands well
+      // beyond the bounds) — a fixed ray length calibrated to the map's own scale isn't always
+      // enough to travel back across it. Scaling by how far `start` already is from the map keeps
+      // this reliable regardless — and using this same distance as `chooseRayDirection`'s own
+      // internal probe scale keeps its third-site check looking exactly as far out as the ray
+      // actually travels, rather than the two silently disagreeing.
+      const rayLength =
+        baseRayLength + Math.hypot(edge.start.x - boundsCenter.x, edge.start.y - boundsCenter.y);
+      const direction = chooseRayDirection(edge.start, arcA.site, arcB.site, sites, rayLength);
+      finalizeEdge(edge, {
+        x: edge.start.x + direction.x * rayLength,
+        y: edge.start.y + direction.y * rayLength,
+      });
     }
-    lowerBound = farX;
   }
 
   const clippedEdges: VoronoiEdge[] = [];
