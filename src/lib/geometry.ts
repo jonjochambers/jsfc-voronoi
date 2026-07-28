@@ -3,8 +3,13 @@ import type { Point } from './types.js';
 // Simultaneous site events (equal y, tie-broken by x) mean two beachline arcs can momentarily
 // share the sweep line's exact y. Flooring the focus-to-directrix distance at a tiny epsilon
 // avoids a division by zero there — the arc just renders as an extremely narrow spike for that
-// one instant rather than NaN/Infinity, which is visually and practically meaningless anyway.
-const MIN_FOCUS_DISTANCE = 1e-6;
+// one instant rather than NaN/Infinity. Exported so callers evaluating a parabola *away* from its
+// own focus (e.g. `fortune.ts`'s new-edge start point) can detect when they're in this floored
+// regime themselves: the floored value is only meaningful infinitesimally close to `focus.x` —
+// evaluated any real distance away, it explodes to a huge, physically meaningless magnitude (the
+// distance-squared term divides by the same tiny floor), which is a numerically different problem
+// from the ordinary "which of two roots" ambiguity `breakpointX` handles.
+export const MIN_FOCUS_DISTANCE = 1e-6;
 
 /** y-coordinate of the parabola with the given focus and horizontal directrix (`directrixY`,
  * the sweep line), evaluated at `x`. Standard focus/directrix form, rearranged so the vertex
@@ -21,8 +26,10 @@ export function parabolaY(focus: Point, directrixY: number, x: number): number {
  * The two parabolas generally cross at two points, and which one is the true left→right
  * breakpoint isn't reliably predictable from a simple comparison of `left.y`/`right.y` alone (an
  * earlier version of this function tried exactly that and was wrong for some configurations) —
- * so instead this checks the defining property directly: `left` must dominate (have the lower
- * parabola value) immediately before the returned x, and `right` immediately after. */
+ * so instead this checks the defining property directly: `left` must dominate (have the *higher*
+ * parabola value — the site whose arc is closer to the sweep line, i.e. geometrically closer to
+ * the query point, per `parabolaY`'s own vertex-form derivation) immediately before the returned
+ * x, and `right` immediately after. */
 export function breakpointX(left: Point, right: Point, directrixY: number): number {
   if (left.y === right.y) {
     return (left.x + right.x) / 2;
@@ -44,9 +51,9 @@ export function breakpointX(left: Point, right: Point, directrixY: number): numb
   const probe = Math.max(gap * 1e-4, 1e-6);
   for (const x of candidates) {
     const leftDominatesBefore =
-      parabolaY(left, directrixY, x - probe) < parabolaY(right, directrixY, x - probe);
+      parabolaY(left, directrixY, x - probe) > parabolaY(right, directrixY, x - probe);
     const rightDominatesAfter =
-      parabolaY(right, directrixY, x + probe) < parabolaY(left, directrixY, x + probe);
+      parabolaY(right, directrixY, x + probe) > parabolaY(left, directrixY, x + probe);
     if (leftDominatesBefore && rightDominatesAfter) {
       return x;
     }

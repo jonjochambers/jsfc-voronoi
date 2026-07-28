@@ -22,15 +22,18 @@ describe('breakpointX', () => {
   });
 
   it('matches a hand-computed asymmetric case (site closer to the sweep on the left)', () => {
-    // left focus (10,5) is closer to the directrix (y=20) than right focus (0,0);
-    // solving parabolaY(left,x) = parabolaY(right,x) by hand gives x ≈ 1.2702.
+    // left focus (10,5) is closer to the directrix (y=20) than right focus (0,0); solving
+    // parabolaY(left,x) = parabolaY(right,x) by hand gives two roots, ≈1.2702 and ≈78.7298.
+    // `left` must have the *higher* value immediately before the root (it's the arc currently
+    // visible on the beachline there — the geometrically closer site) and `right` immediately
+    // after; that's the larger root here, ≈78.7298, not the smaller one.
     const x = breakpointX({ x: 10, y: 5 }, { x: 0, y: 0 }, 20);
-    expect(x).toBeCloseTo(1.2702, 2);
+    expect(x).toBeCloseTo(78.7298, 1);
   });
 
   it('matches the mirrored hand-computed case (the other root, swapping left/right)', () => {
     const x = breakpointX({ x: 0, y: 0 }, { x: 10, y: 5 }, 20);
-    expect(x).toBeCloseTo(78.7298, 1);
+    expect(x).toBeCloseTo(1.2702, 2);
   });
 });
 

@@ -20,14 +20,16 @@ describe('evaluateBeachlineAt', () => {
   });
 
   it('matches the hand-computed breakpoint for a known 2-site case', () => {
-    // Same fixture as geometry.spec.ts's asymmetric breakpointX case.
+    // Same fixture as geometry.spec.ts's asymmetric breakpointX case — site 0 is to the left of
+    // site 1 in this snapshot, so the relevant root is the larger one, ≈78.7298 (see that spec's
+    // comment on why the smaller root, ≈1.2702, is the *other* (right, left) ordering instead).
     const sites: Site[] = [
       { id: 0, x: 10, y: 5 },
       { id: 1, x: 0, y: 0 },
     ];
     const result = evaluateBeachlineAt([0, 1], sites, 20, BOUNDS, 4);
     expect(result.breakpoints).toHaveLength(1);
-    expect(result.breakpoints[0].x).toBeCloseTo(1.2702, 2);
+    expect(result.breakpoints[0].x).toBeCloseTo(78.7298, 1);
   });
 
   it('throws if the snapshot references an unknown site id', () => {

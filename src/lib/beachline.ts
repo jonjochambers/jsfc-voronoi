@@ -1,6 +1,10 @@
 import type { CircleEvent } from './event-queue.js';
-import { parabolaY } from './geometry.js';
+import { breakpointX, parabolaY } from './geometry.js';
 import type { Site } from './types.js';
+
+// How close two arcs' parabola values must be, relative to the map scale, to be considered
+// "tied" for findArcAbove's purposes — see that function's doc comment.
+const TIE_EPSILON = 1e-6;
 
 /** A node on the beachline — a doubly-linked list of arcs (parabola pieces), left to right.
  *
@@ -31,24 +35,54 @@ export class Beachline {
 
   /** The arc whose parabola sits directly above `x` at the current sweep position.
    *
-   * Deliberately does NOT solve for the breakpoint's x-coordinate and compare against it — that
-   * quadratic generally has two roots (see `geometry.ts`), and picking the right one by formula
-   * turned out to be unreliable in several configurations. Walking left to right and directly
-   * comparing parabola *values* at the query `x` itself sidesteps that ambiguity entirely: no
-   * equation-solving, just "which of these two sites is lower right here," which is the direct
-   * definition of which arc is visible. */
+   * By definition, the beachline at any `x` is whichever currently-swept site is closest to
+   * `(x, directrixY)` — equivalently, whichever site's parabola gives the *highest* value there
+   * (a higher arc means that site is pushing the equidistant-from-directrix boundary further
+   * up, i.e. it's geometrically closer). Evaluating every arc's own parabola directly and taking
+   * the maximum is a direct implementation of that definition, and doesn't depend on any
+   * particular arc's neighbors — which matters here because a single site can legitimately occupy
+   * more than one, non-adjacent arc (an earlier arc of that site got split by a later site
+   * insertion), and comparing breakpoints *pairwise* between neighbors breaks down in that case:
+   * two arcs of the *same* site produce identical pairwise-breakpoint results against a site
+   * sandwiched between them regardless of that middle site's actual position, incorrectly reading
+   * as "zero width" and walking straight past it. A still-earlier version of this function had a
+   * different, related bug — comparing raw values only between *adjacent* pairs while walking,
+   * which fails once a query point is past the second of two crossings between just that one pair.
+   * Evaluating every arc's value against the true global maximum (not pairwise, not stopping
+   * early) has neither failure mode.
+   *
+   * A tie between two (or more) arcs — which, since two genuinely different sites essentially
+   * never land on the exact same value, only really happens between multiple arcs of the *same*
+   * site — can't be broken by the value alone; blindly preferring the leftmost or rightmost tied
+   * occurrence is wrong in general (each is correct for some configurations and wrong for others).
+   * What actually disambiguates it is each tied candidate's *own* immediate neighbors: exactly one
+   * of them will have `x` genuinely between its own left and right breakpoints (computed the
+   * ordinary pairwise way, which is reliable at this short range — see `breakpointX`'s own doc
+   * comment on why that's only trustworthy near the true breakpoint, which this is). */
   findArcAbove(x: number, directrixY: number): Arc {
-    if (!this.head) {
+    const head = this.head;
+    if (!head) {
       throw new Error('cannot search an empty beachline');
     }
-    let arc = this.head;
-    while (
-      arc.next &&
-      parabolaY(arc.site, directrixY, x) > parabolaY(arc.next.site, directrixY, x)
-    ) {
-      arc = arc.next;
+
+    let bestValue = Number.NEGATIVE_INFINITY;
+    for (let arc: Arc | null = head; arc; arc = arc.next) {
+      bestValue = Math.max(bestValue, parabolaY(arc.site, directrixY, x));
     }
-    return arc;
+
+    let fallback = head;
+    for (let arc: Arc | null = head; arc; arc = arc.next) {
+      const value = parabolaY(arc.site, directrixY, x);
+      if (value < bestValue - TIE_EPSILON) continue;
+      fallback = arc;
+
+      const withinLeft = !arc.prev || x >= breakpointX(arc.prev.site, arc.site, directrixY);
+      const withinRight = !arc.next || x <= breakpointX(arc.site, arc.next.site, directrixY);
+      if (withinLeft && withinRight) return arc;
+    }
+    // Shouldn't be reachable for a genuinely valid beachline — every x belongs to exactly one
+    // arc's local bounds — but fall back to the last tied-for-max candidate rather than throw.
+    return fallback;
   }
 
   /** Split `arc` around a new site event, inserting `site`'s arc in the middle. Returns the
