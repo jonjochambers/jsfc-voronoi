@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --no-frozen-lockfile
+
+      - run: pnpm run typecheck
+
+      - run: pnpm run lint
+
+      - run: pnpm run test:coverage
+
+      # Only runs on pushes to main (not PRs, and not forked-PR runs, which don't get
+      # write access to secrets/tokens anyway) — updates the coverage badge data on the
+      # dedicated `badges` branch, which isn't covered by main's branch protection.
+      - name: Update coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          PCT=$(node -e "console.log(Math.round(require('./coverage/coverage-summary.json').total.lines.pct))")
+          COLOR=$(node -e "const p=$PCT; process.stdout.write(p>=90?'brightgreen':p>=75?'green':p>=50?'yellow':'red')")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin badges
+          git worktree add ../badges-wt origin/badges
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${PCT}%\",\"color\":\"${COLOR}\"}" > ../badges-wt/coverage.json
+          cd ../badges-wt
+          git add coverage.json
+          git diff --cached --quiet || git commit -m "Update coverage badge [skip ci]"
+          git push origin HEAD:badges
