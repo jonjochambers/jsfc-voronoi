@@ -15,6 +15,7 @@
   },
   "scripts": {
     "typecheck": "tsc --build tsconfig.json",
+    "build": "tsc --build tsconfig.lib.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "vitest run",
