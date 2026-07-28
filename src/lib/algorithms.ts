@@ -27,10 +27,11 @@ export const ALGORITHMS: Record<AlgorithmId, AlgorithmInfo> = {
       "site's perpendicular-bisector half-plane. Simplest possible correct construction.",
   },
   fortune: {
-    label: "Fortune's sweep line (experimental — known bug)",
+    label: "Fortune's sweep line",
     description:
-      'A sweep-line beachline of parabolic arcs. Kept in as a work-in-progress reference: its ' +
-      'final open-edge resolution still overshoots cell areas for some configurations.',
+      'Sweeps a line down the plane, maintaining a beachline of parabolic arcs that split and ' +
+      'resolve into edges as sites and circle events are processed. The only O(n log n) approach ' +
+      'of the three.',
   },
 };
 
