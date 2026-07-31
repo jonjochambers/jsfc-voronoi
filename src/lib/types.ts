@@ -16,13 +16,21 @@ export interface VoronoiEdge {
   end: Point;
 }
 
+/** Named elevation bands, ascending. Shared with moisture/biome lookup (Phase 1B) and rendering
+ * (Phase 1C) — this is the vocabulary those depend on, not just an `island.ts` implementation
+ * detail. */
+export type ElevationTier = 'OCEAN' | 'COAST' | 'PLAIN' | 'HILL' | 'MOUNTAIN';
+
 /** A cell's `polygon` is angularly sorted around `site` and closed (no repeated first/last point). */
 export interface VoronoiCell {
   site: Site;
   polygon: Point[];
-  isLand?: boolean;
+  /** Continuous height in [0, 1], populated by `applyIslandShape` — absent until then. */
+  elevation?: number;
+  /** `elevation` bucketed into a named band, populated alongside it. */
+  tier?: ElevationTier;
   /** Ids into `VoronoiDiagram.corners`, one per `polygon` point at the same index (closed loop,
-   * populated by `attachGraph` — absent until then, same optionality as `isLand`). */
+   * populated by `attachGraph` — absent until then, same optionality as `elevation`). */
   cornerIds?: number[];
   /** Site ids of cells sharing a real interior edge (two consecutive corners) with this one —
    * populated by `attachGraph`. Points shared only along the bounding-box perimeter don't count. */
