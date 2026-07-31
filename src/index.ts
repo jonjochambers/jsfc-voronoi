@@ -14,6 +14,7 @@ export * from './lib/island.js';
 export * from './lib/moisture.js';
 export * from './lib/random.js';
 export * from './lib/relaxation.js';
+export * from './lib/rivers.js';
 export * from './lib/sites.js';
 export * from './lib/sizing.js';
 export * from './lib/trace.js';
