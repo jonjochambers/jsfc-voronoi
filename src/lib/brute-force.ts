@@ -43,7 +43,7 @@ export function runBruteForce(
   // No edge list: nothing downstream needs one (final rendering and land/water classification
   // only ever read `cells`), and this algorithm doesn't naturally produce edges shared between
   // exactly two sites the way Fortune's/Bowyer-Watson's do.
-  const diagram: VoronoiDiagram = { sites: [...sites], edges: [], cells, bounds };
+  const diagram: VoronoiDiagram = { sites: [...sites], edges: [], cells, bounds, corners: [] };
   trace.push({ type: 'complete', diagram });
 
   return { diagram, trace };
