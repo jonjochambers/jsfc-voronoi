@@ -308,7 +308,13 @@ export function runFortune(
   }
 
   const cells = buildCells(sites, clippedEdges, bounds);
-  const diagram: VoronoiDiagram = { sites: [...sites], edges: clippedEdges, cells, bounds };
+  const diagram: VoronoiDiagram = {
+    sites: [...sites],
+    edges: clippedEdges,
+    cells,
+    bounds,
+    corners: [],
+  };
   trace.push({ type: 'complete', diagram });
 
   return { diagram, trace };

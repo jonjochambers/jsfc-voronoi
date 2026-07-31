@@ -10,6 +10,7 @@ function diagramWithSiteAt(x: number, y: number): VoronoiDiagram {
     edges: [],
     cells: [{ site, polygon: [] }],
     bounds: BOUNDS,
+    corners: [],
   };
 }
 
@@ -71,6 +72,7 @@ describe('applyIslandShape', () => {
           },
         ],
         bounds: BOUNDS,
+        corners: [],
       } satisfies VoronoiDiagram;
       const outsideSafe = {
         sites: [
@@ -92,6 +94,7 @@ describe('applyIslandShape', () => {
           },
         ],
         bounds: BOUNDS,
+        corners: [],
       } satisfies VoronoiDiagram;
 
       expect(

@@ -94,7 +94,7 @@ export function runBowyerWatson(
       }
       return { site, polygon };
     });
-    const diagram: VoronoiDiagram = { sites: [...sites], edges: [], cells, bounds };
+    const diagram: VoronoiDiagram = { sites: [...sites], edges: [], cells, bounds, corners: [] };
     trace.push({ type: 'complete', diagram });
     return { diagram, trace };
   }
@@ -238,7 +238,7 @@ export function runBowyerWatson(
   }
 
   const cells = buildCells(sites, edges, bounds);
-  const diagram: VoronoiDiagram = { sites: [...sites], edges, cells, bounds };
+  const diagram: VoronoiDiagram = { sites: [...sites], edges, cells, bounds, corners: [] };
   trace.push({ type: 'complete', diagram });
 
   return { diagram, trace };

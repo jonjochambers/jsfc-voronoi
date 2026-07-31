@@ -2,6 +2,7 @@ import type { BowyerWatsonTraceStep } from './bowyer-watson.js';
 import { runBowyerWatson } from './bowyer-watson.js';
 import type { BruteForceTraceStep } from './brute-force.js';
 import { runBruteForce } from './brute-force.js';
+import { attachGraph } from './build-graph.js';
 import { runFortune } from './fortune.js';
 import type { FortuneTraceStep } from './trace.js';
 import type { Site, VoronoiBounds, VoronoiDiagram } from './types.js';
@@ -52,15 +53,15 @@ export function runAlgorithm(
   switch (id) {
     case 'fortune': {
       const { diagram, trace } = runFortune(sites, bounds);
-      return { kind: 'fortune', diagram, trace };
+      return { kind: 'fortune', diagram: attachGraph(diagram), trace };
     }
     case 'brute-force': {
       const { diagram, trace } = runBruteForce(sites, bounds);
-      return { kind: 'brute-force', diagram, trace };
+      return { kind: 'brute-force', diagram: attachGraph(diagram), trace };
     }
     case 'bowyer-watson': {
       const { diagram, trace } = runBowyerWatson(sites, bounds);
-      return { kind: 'bowyer-watson', diagram, trace };
+      return { kind: 'bowyer-watson', diagram: attachGraph(diagram), trace };
     }
   }
 }
