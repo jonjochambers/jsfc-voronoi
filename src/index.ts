@@ -1,5 +1,6 @@
 export * from './lib/algorithms.js';
 export * from './lib/beachline.js';
+export * from './lib/biomes.js';
 export * from './lib/bowyer-watson.js';
 export * from './lib/brute-force.js';
 export * from './lib/build-cells.js';
@@ -10,6 +11,7 @@ export * from './lib/fortune.js';
 export * from './lib/geometry.js';
 export * from './lib/half-plane-clip.js';
 export * from './lib/island.js';
+export * from './lib/moisture.js';
 export * from './lib/random.js';
 export * from './lib/relaxation.js';
 export * from './lib/sites.js';

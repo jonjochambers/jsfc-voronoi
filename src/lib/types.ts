@@ -21,6 +21,16 @@ export interface VoronoiEdge {
  * detail. */
 export type ElevationTier = 'OCEAN' | 'COAST' | 'PLAIN' | 'HILL' | 'MOUNTAIN';
 
+export type Biome =
+  | 'OCEAN'
+  | 'BEACH'
+  | 'SNOW'
+  | 'TUNDRA'
+  | 'TAIGA'
+  | 'GRASSLAND'
+  | 'DESERT'
+  | 'RAIN_FOREST';
+
 /** A cell's `polygon` is angularly sorted around `site` and closed (no repeated first/last point). */
 export interface VoronoiCell {
   site: Site;
@@ -35,6 +45,10 @@ export interface VoronoiCell {
   /** Site ids of cells sharing a real interior edge (two consecutive corners) with this one —
    * populated by `attachGraph`. Points shared only along the bounding-box perimeter don't count. */
   neighborIds?: number[];
+  /** 0-1, populated by `assignMoisture` — requires `neighborIds` to already be set. */
+  moisture?: number;
+  /** Populated by `assignBiomes`, combining an elevation tier with `moisture`. */
+  biome?: Biome;
 }
 
 /** A deduplicated Voronoi vertex shared between however many cells/edges actually meet there —
