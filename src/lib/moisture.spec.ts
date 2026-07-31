@@ -1,8 +1,13 @@
 import { assignMoisture, moistureLevel } from './moisture.js';
 import type { VoronoiCell, VoronoiDiagram } from './types.js';
 
-function cell(siteId: number, isLand: boolean, neighborIds: number[]): VoronoiCell {
-  return { site: { id: siteId, x: siteId, y: 0 }, polygon: [], isLand, neighborIds };
+function cell(siteId: number, isLandCell: boolean, neighborIds: number[]): VoronoiCell {
+  return {
+    site: { id: siteId, x: siteId, y: 0 },
+    polygon: [],
+    tier: isLandCell ? 'PLAIN' : 'OCEAN',
+    neighborIds,
+  };
 }
 
 function diagramOf(cells: VoronoiCell[]): VoronoiDiagram {
@@ -15,7 +20,7 @@ function diagramOf(cells: VoronoiCell[]): VoronoiDiagram {
   };
 }
 
-const isLand = (c: VoronoiCell) => c.isLand === true;
+const isLand = (c: VoronoiCell) => c.tier !== 'OCEAN';
 
 describe('moistureLevel', () => {
   it('buckets the 0-1 range into named levels', () => {
