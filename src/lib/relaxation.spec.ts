@@ -47,6 +47,16 @@ describe('relaxSites', () => {
     expect(after).toBeGreaterThan(before);
   });
 
+  it('is fully deterministic given the same input sites -- no seed of its own, purely a function of its arguments', () => {
+    const algorithms: AlgorithmId[] = ['fortune', 'brute-force', 'bowyer-watson'];
+    for (const algorithm of algorithms) {
+      const sites = generateRandomSites(BOUNDS.width, BOUNDS.height, 20, 11);
+      const a = relaxSites(sites, BOUNDS, algorithm, 4);
+      const b = relaxSites(sites, BOUNDS, algorithm, 4);
+      expect(a).toEqual(b);
+    }
+  });
+
   it('leaves a site in place for an iteration where its cell degenerates to zero area', () => {
     // Two coincident-ish sites under brute-force half-plane clipping: the loser of a tie can be
     // clipped down to an empty polygon, which is exactly the "no reliable centroid" case
