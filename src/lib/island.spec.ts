@@ -4,12 +4,20 @@ import type { VoronoiDiagram } from './types.js';
 const BOUNDS = { width: 100, height: 100 };
 
 function diagramWithSiteAt(x: number, y: number): VoronoiDiagram {
+  return diagramWithSiteAtBounds(x, y, BOUNDS);
+}
+
+function diagramWithSiteAtBounds(
+  x: number,
+  y: number,
+  bounds: { width: number; height: number },
+): VoronoiDiagram {
   const site = { id: 0, x, y };
   return {
     sites: [site],
     edges: [],
     cells: [{ site, polygon: [] }],
-    bounds: BOUNDS,
+    bounds,
     corners: [],
   };
 }
@@ -34,6 +42,29 @@ describe('applyIslandShape', () => {
       seed: 1,
     });
     expect(result.cells[0].tier).toBe('OCEAN');
+  });
+
+  it('keeps the long-axis edge midpoints out of land tiers on a non-square canvas', () => {
+    // Regression: a coastline radius derived from min(width, height) alone let land persist past
+    // the longer axis's edge on wide/tall canvases (e.g. 800x608), even though the shorter axis
+    // correctly stayed within the coastline. jitterAmplitude is 0 here to isolate the geometric
+    // containment claim from the organic bulges jitter is deliberately allowed to produce.
+    const bounds = { width: 800, height: 608 };
+    const edgeMidpoints = [
+      { x: 0, y: bounds.height / 2 },
+      { x: bounds.width, y: bounds.height / 2 },
+    ];
+    for (const { x, y } of edgeMidpoints) {
+      for (let seed = 0; seed < 20; seed++) {
+        const diagram = diagramWithSiteAtBounds(x, y, bounds);
+        const result = applyIslandShape(diagram, {
+          baseRadiusFactor: 0.75,
+          jitterAmplitude: 0,
+          seed,
+        });
+        expect(['OCEAN', 'COAST']).toContain(result.cells[0].tier);
+      }
+    }
   });
 
   it('is deterministic for a given seed', () => {
