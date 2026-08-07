@@ -67,6 +67,29 @@ describe('applyIslandShape', () => {
     }
   });
 
+  it('never lets noise push a cell at the canvas edge back into a land tier', () => {
+    // Regression: noiseWeight was blended in at full strength regardless of distance, so an
+    // unlucky noise draw could push a cell sitting right at the canvas edge — which the shape term
+    // alone correctly resolves to OCEAN — into COAST/BEACH (or worse), leaking land with zero
+    // ocean margin right up to the border. baseRadiusFactor 0.8 with jitterAmplitude 0 puts this
+    // edge site at distanceRatio 1.25 (1 / 0.8), comfortably past NOISE_TAPER_END, so only `seed`
+    // (and therefore the noise draw) varies across iterations.
+    const diagram = diagramWithSiteAt(100, 50);
+    const elevations = new Set<number | undefined>();
+    for (let seed = 0; seed < 30; seed++) {
+      const result = applyIslandShape(diagram, {
+        baseRadiusFactor: 0.8,
+        jitterAmplitude: 0,
+        seed,
+      });
+      elevations.add(result.cells[0].elevation);
+      expect(result.cells[0].tier).toBe('OCEAN');
+    }
+    // With noise fully tapered out past distanceRatio 1.0, elevation is decided by shapeValue
+    // alone and must be identical across every seed above.
+    expect(elevations.size).toBe(1);
+  });
+
   it('is deterministic for a given seed', () => {
     const diagram = diagramWithSiteAt(30, 70);
     const a = applyIslandShape(diagram, { baseRadiusFactor: 0.6, jitterAmplitude: 0.4, seed: 42 });

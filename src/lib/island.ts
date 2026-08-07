@@ -29,6 +29,11 @@ const DEFAULT_NOISE_WEIGHT = 0.25;
  * through PLAIN/HILL territory for several radii — see `applyIslandShape`. */
 const FALLOFF_SHARPNESS = 2.5;
 
+/** `distance / coastRadius` bounds between which the noise layer's weight fades from full to
+ * zero — see `noiseTaper`. */
+const NOISE_TAPER_START = 0.9;
+const NOISE_TAPER_END = 1.0;
+
 /** Ascending elevation breakpoints: a cell falls in the first tier whose bound it's below. Chosen
  * symmetrically around the 0.5 blend midpoint (see `applyIslandShape`) so that fully saturated
  * land/water shape values land safely inside MOUNTAIN/OCEAN regardless of `noiseWeight`'s share of
@@ -79,6 +84,23 @@ function latticeValue(ix: number, iy: number, seed: number): number {
 
 function smoothstep(t: number): number {
   return t * t * (3 - 2 * t);
+}
+
+/** Fades the noise layer's weight from 1 to 0 as `distanceRatio` (`distance / coastRadius`) moves
+ * from `NOISE_TAPER_START` to `NOISE_TAPER_END`. `shapeValue`'s own tanh falloff is what actually
+ * decides OCEAN vs. land near the coastline, but it's driven by `distanceRatio` too and can sit
+ * close to 0 (low confidence) right where jitter has pulled a cell's local `coastRadius` in close
+ * to the canvas edge — the independent noise layer was blended in at full strength regardless, so
+ * an unlucky noise draw could push elevation into a land tier even for a cell at or past its own
+ * coastline. Tapering noise out by the time a cell reaches its coastline (ratio >= 1) means only
+ * the geometric shape term — which `applyIslandShape`'s ellipse-normalized containment already
+ * keeps inside the canvas — decides tier from that point on, while interior/near-coast cells
+ * (ratio <= 0.9) keep full noise texture. */
+function noiseTaper(distanceRatio: number): number {
+  if (distanceRatio <= NOISE_TAPER_START) return 1;
+  if (distanceRatio >= NOISE_TAPER_END) return 0;
+  const t = (distanceRatio - NOISE_TAPER_START) / (NOISE_TAPER_END - NOISE_TAPER_START);
+  return 1 - smoothstep(t);
 }
 
 /** Bilinear-interpolated value noise at continuous `(x, y)`: hashes the 4 surrounding lattice
@@ -161,9 +183,10 @@ export function applyIslandShape(diagram: VoronoiDiagram, config: IslandConfig):
     const distance = Math.hypot(dx, dy);
     const angle = Math.atan2(dy, dx);
     const coastRadius = coastlineRadiusAt(angle, baseRadiusFactor, controlMultipliers);
+    const distanceRatio = distance / coastRadius;
 
     // 1 at the center, 0 exactly at the coastline, negative (and sharpened) beyond it.
-    const shapeValue = Math.tanh((1 - distance / coastRadius) * FALLOFF_SHARPNESS);
+    const shapeValue = Math.tanh((1 - distanceRatio) * FALLOFF_SHARPNESS);
 
     // fractalNoise returns [0,1]; recenter to [-1,1] so it can push elevation either side of the
     // coastline rather than only ever raising it.
@@ -177,7 +200,8 @@ export function applyIslandShape(diagram: VoronoiDiagram, config: IslandConfig):
         2 -
       1;
 
-    const blended = shapeValue * (1 - noiseWeight) + noiseValue * noiseWeight;
+    const effectiveNoiseWeight = noiseWeight * noiseTaper(distanceRatio);
+    const blended = shapeValue * (1 - effectiveNoiseWeight) + noiseValue * effectiveNoiseWeight;
     const elevation = clamp01(0.5 + blended * 0.5);
 
     return { ...cell, elevation, tier: tierForElevation(elevation) };
