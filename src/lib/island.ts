@@ -24,6 +24,11 @@ const DEFAULT_NOISE_OCTAVES = 4;
 const DEFAULT_NOISE_FREQUENCY = 3;
 const DEFAULT_NOISE_WEIGHT = 0.25;
 
+/** Multiplies the tanh input so the shape saturates to OCEAN/MOUNTAIN well before `distance`
+ * reaches a full multiple of `coastRadius` past/short of the coastline, instead of drifting
+ * through PLAIN/HILL territory for several radii — see `applyIslandShape`. */
+const FALLOFF_SHARPNESS = 2.5;
+
 /** Ascending elevation breakpoints: a cell falls in the first tier whose bound it's below. Chosen
  * symmetrically around the 0.5 blend midpoint (see `applyIslandShape`) so that fully saturated
  * land/water shape values land safely inside MOUNTAIN/OCEAN regardless of `noiseWeight`'s share of
@@ -120,7 +125,13 @@ function clamp01(value: number): number {
  * cell deep inside or far outside the coastline lands solidly in its tier regardless of noise —
  * only cells near the coastline are noise-sensitive, which is exactly where organic variation is
  * wanted. Fully decoupled from `runAlgorithm`; swapping in a different elevation model later only
- * touches this file. */
+ * touches this file.
+ *
+ * Distance is measured in ellipse-normalized units (site offset divided by each axis' own half
+ * extent) rather than raw pixels, so `distance === 1` lands exactly on the canvas edge along
+ * *either* axis. A single radius derived from `min(width, height)` would let the coastline sit
+ * well inside the shorter axis while `baseRadiusFactor`-fraction-of-that-radius still fell short
+ * of the longer axis's edge, leaving land touching the border on non-square canvases. */
 export function applyIslandShape(diagram: VoronoiDiagram, config: IslandConfig): VoronoiDiagram {
   const {
     baseRadiusFactor,
@@ -134,7 +145,8 @@ export function applyIslandShape(diagram: VoronoiDiagram, config: IslandConfig):
   const random = createRandom(seed);
 
   const center = { x: diagram.bounds.width / 2, y: diagram.bounds.height / 2 };
-  const baseRadius = (baseRadiusFactor * Math.min(diagram.bounds.width, diagram.bounds.height)) / 2;
+  const halfWidth = diagram.bounds.width / 2;
+  const halfHeight = diagram.bounds.height / 2;
   const controlMultipliers = Array.from(
     { length: jitterControlPoints },
     () => 1 + (random() * 2 - 1) * jitterAmplitude,
@@ -144,14 +156,14 @@ export function applyIslandShape(diagram: VoronoiDiagram, config: IslandConfig):
   const noiseSeed = (seed + 0x9e3779b9) | 0;
 
   const cells = diagram.cells.map((cell) => {
-    const dx = cell.site.x - center.x;
-    const dy = cell.site.y - center.y;
+    const dx = (cell.site.x - center.x) / halfWidth;
+    const dy = (cell.site.y - center.y) / halfHeight;
     const distance = Math.hypot(dx, dy);
     const angle = Math.atan2(dy, dx);
-    const coastRadius = coastlineRadiusAt(angle, baseRadius, controlMultipliers);
+    const coastRadius = coastlineRadiusAt(angle, baseRadiusFactor, controlMultipliers);
 
-    // 1 at the center, 0 exactly at the coastline, negative beyond it.
-    const shapeValue = Math.tanh(1 - distance / coastRadius);
+    // 1 at the center, 0 exactly at the coastline, negative (and sharpened) beyond it.
+    const shapeValue = Math.tanh((1 - distance / coastRadius) * FALLOFF_SHARPNESS);
 
     // fractalNoise returns [0,1]; recenter to [-1,1] so it can push elevation either side of the
     // coastline rather than only ever raising it.
